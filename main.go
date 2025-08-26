@@ -38,10 +38,8 @@ func banner() {
 	fmt.Println(banner)
 }
 
-var deviceVIDFound = false
 var devicePID string
 var deviceVID string
-var deviceINFO string
 
 func fetchDevices(deviceVID, devicePID string, deviceINFO string) {
 	url := fmt.Sprintf("http://apps.sebastianlang.net/usb-ids?vid=%s&pid=%s", deviceVID, devicePID)
