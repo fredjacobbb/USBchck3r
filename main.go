@@ -1,15 +1,33 @@
 package main
 
 import (
-	"bufio"
+	"encoding/json"
 	"fmt"
-	"os"
+	"io"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/pterm/pterm"
 	"github.com/pterm/pterm/putils"
 	"golang.org/x/sys/windows/registry"
 )
+
+type USBDeviceInfo struct {
+	Vendor []Vendor `json:"vendors"`
+}
+
+type Vendor struct {
+	Id        string   `json:"id"`
+	Name      string   `json:"name"`
+	Device    []Device `json:"devices"`
+	InfoModif string
+}
+
+type Device struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
 
 func banner() {
 	banner, _ := pterm.DefaultBigText.WithLetters(
@@ -23,28 +41,32 @@ func banner() {
 var deviceVIDFound = false
 var devicePID string
 var deviceVID string
+var deviceINFO string
 
-func fetchDevices(deviceVID, devicePID string) {
-	file, err := os.OpenFile("usbdevices.txt", os.O_RDONLY, 0)
+func fetchDevices(deviceVID, devicePID string, deviceINFO string) {
+	url := fmt.Sprintf("http://apps.sebastianlang.net/usb-ids?vid=%s&pid=%s", deviceVID, devicePID)
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Println("Request Error : ", err)
+		return
+	}
+
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	defer file.Close()
+	var usbDeviceInfo USBDeviceInfo
 
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.Contains(line, strings.ToLower(deviceVID)) {
-			fmt.Println(line)
-			deviceVIDFound = true
-		}
-		if deviceVIDFound && strings.HasPrefix(line, "\t") && strings.Contains(line, strings.ToLower(devicePID)) {
-			fmt.Println(line)
-		}
+	err = json.Unmarshal(body, &usbDeviceInfo)
+	if err != nil {
+		return
 	}
+
+	fmt.Printf("----------\nUSBPERIPHERIK : %s\nDATEMODIF : %s\n----------", usbDeviceInfo.Vendor, deviceINFO)
 
 }
 
@@ -67,14 +89,17 @@ func main() {
 
 	// Iterate over device names
 	for _, device := range devices {
-		_, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Enum\USB\`+device, registry.QUERY_VALUE|registry.ENUMERATE_SUB_KEYS)
+		info, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Enum\USB\`+device, registry.QUERY_VALUE|registry.ENUMERATE_SUB_KEYS)
 		if err != nil {
 			fmt.Println("Erreur : ", err)
 		}
-		// dateInfo, err := info.Stat()
-		// if err != nil {
-		// 	fmt.Println(err)
-		// }
+
+		defer info.Close()
+
+		deviceINFO, err := info.Stat()
+		if err != nil {
+			return
+		}
 
 		deviceVIDtmp, after, _ := strings.Cut(device, "&")
 
@@ -87,11 +112,8 @@ func main() {
 
 		deviceVID = strings.Trim(deviceVIDtmp, "VID_")
 		devicePID = strings.Trim(devicePID, "PID_")
-		// deviceMI := strings.Trim(deviceMItmp, "MI_")
-
-		fetchDevices(deviceVID, devicePID)
-
-		// fmt.Printf("%s : %s \n\n", device, dateInfo.ModTime().String())
+		fetchDevices(deviceVID, devicePID, deviceINFO.ModTime().Format("Monday, January 2, 2006 15:04:05 MST"))
+		time.Sleep(time.Second * 2)
 
 	}
 }
